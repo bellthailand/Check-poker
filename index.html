@@ -93,8 +93,8 @@
     </div>
 
     <div class="calc-section">
-        <span>ศัตรู Bet Range:</span>
-        <input type="number" id="percentInput" value="18.3" min="0" max="100" step="0.1">
+        <span>ศัตรู Bet (% ของ Pot):</span>
+        <input type="number" id="betInput" value="50" min="0" max="500" step="1">
         <span>%</span>
         <button class="btn-calc" onclick="calculateRange()">คำนวณ</button>
     </div>
@@ -110,10 +110,7 @@
     </div>
 
 <script>
-    // ลำดับไพ่ A ถึง 2
     const ranks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
-    
-    // ลำดับความแข็งแกร่งของไพ่ 169 รูปแบบ (เพื่อใช้ดึง % แบบเรียงตามความเก่ง)
     const handRankings = [
         "AA","KK","QQ","JJ","AKs","AQs","TT","AKo","AJs","KQs","99","ATs","AQo","KJs","88","QJs","KTs",
         "A9s","AJo","KQo","77","QTs","A8s","KJo","JTs","A7s","ATo","A5s","K9s","66","A6s","QJo","A4s",
@@ -129,21 +126,14 @@
     ];
 
     const grid = document.getElementById('pokerGrid');
+    let currentBaseRange = 18.3; // ตั้งค่าเริ่มต้นให้ UTG2
 
-    // สร้างตาราง 13x13 (169 ช่อง) ตอนเปิดแอพ
+    // วาดตาราง 169 ช่อง
     function initGrid() {
         grid.innerHTML = '';
         for (let i = 0; i < 13; i++) {
             for (let j = 0; j < 13; j++) {
-                let hand = '';
-                if (i === j) {
-                    hand = ranks[i] + ranks[j]; // ไพ่คู่
-                } else if (i < j) {
-                    hand = ranks[i] + ranks[j] + 's'; // Suited (ดอกเดียวกัน)
-                } else {
-                    hand = ranks[j] + ranks[i] + 'o'; // Offsuit (คนละดอก)
-                }
-                
+                let hand = i === j ? ranks[i] + ranks[j] : (i < j ? ranks[i] + ranks[j] + 's' : ranks[j] + ranks[i] + 'o');
                 let div = document.createElement('div');
                 div.className = 'cell';
                 div.id = 'cell-' + hand;
@@ -153,77 +143,55 @@
         }
     }
 
-    // กดเลือกตำแหน่ง
+    // เมื่อกดปุ่มตำแหน่ง
     function selectPos(btnElement, percent) {
-        // ลบ class active ออกจากทุกปุ่มก่อน
-        let buttons = document.querySelectorAll('.btn-pos');
-        buttons.forEach(btn => btn.classList.remove('active'));
-        
-        // ใส่ class active ให้ปุ่มที่เพิ่งกด
+        document.querySelectorAll('.btn-pos').forEach(btn => btn.classList.remove('active'));
         btnElement.classList.add('active');
-
-        // อัปเดตช่อง Input
-        document.getElementById('percentInput').value = percent;
         
-        // สั่งคำนวณทันที
+        currentBaseRange = percent; // เก็บค่า % ตั้งต้นของตำแหน่งนั้นไว้
         calculateRange();
     }
 
-    // คำนวณและระบายสีตารางตาม %
+    // คำนวณไพ่ตามขนาด Bet
     function calculateRange() {
-        let targetPercent = parseFloat(document.getElementById('percentInput').value);
-        if (isNaN(targetPercent) || targetPercent < 0) targetPercent = 0;
-        if (targetPercent > 100) targetPercent = 100;
+        let betSize = parseFloat(document.getElementById('betInput').value);
+        if (isNaN(betSize) || betSize < 0) betSize = 0;
 
-        // ล้างสีเก่าออกทั้งหมด
-        let cells = document.querySelectorAll('.cell');
-        cells.forEach(cell => {
-            cell.classList.remove('premium', 'strong', 'marginal');
-        });
+        // ล้างสีตารางเก่า
+        document.querySelectorAll('.cell').forEach(cell => cell.classList.remove('premium', 'strong', 'marginal'));
 
+        // หัวใจหลัก: สูตร MDF (Minimum Defense Frequency) ยิ่ง Bet Size เยอะ เป้าหมาย % ยิ่งน้อย
+        // ตัวอย่าง: ถ้าไพ่ตั้งต้น 20% ศัตรู Bet 100% -> ไพ่จะหดเหลือ 20 * (100 / 200) = 10%
+        let targetPercent = currentBaseRange * (100 / (100 + betSize));
+        let totalCombosNeeded = (targetPercent / 100) * 1326;
         let cumulativeCombos = 0;
-        const totalCombos = 1326; // จำนวนคอมโบทั้งหมดใน Texas Hold'em
-        
-        // คำนวณจำนวนคอมโบเป้าหมาย
-        let totalCombosNeeded = (targetPercent / 100) * totalCombos;
         
         for (let i = 0; i < handRankings.length; i++) {
             let hand = handRankings[i];
-            let combos = 0;
-            
-            // หาว่าไพ่นี้มีกี่คอมโบ
-            if (hand.length === 2) combos = 6;       // ไพ่คู่มี 6 คอมโบ
-            else if (hand.includes('s')) combos = 4; // Suited มี 4 คอมโบ
-            else combos = 12;                        // Offsuit มี 12 คอมโบ
+            let combos = hand.length === 2 ? 6 : (hand.includes('s') ? 4 : 12);
 
             cumulativeCombos += combos;
 
-            // ถ้ายอดรวมคอมโบยังอยู่ในช่วงที่กำหนด ให้ระบายสี
             if (cumulativeCombos <= totalCombosNeeded) {
                 let cell = document.getElementById('cell-' + hand);
-                
-                // แบ่งสัดส่วนสี (Top 30%, Middle 40%, Bottom 30%)
                 let currentPosPercent = cumulativeCombos / totalCombosNeeded;
                 
                 if (currentPosPercent <= 0.30) {
-                    cell.classList.add('premium'); // ชัวร์สุด
+                    cell.classList.add('premium'); 
                 } else if (currentPosPercent <= 0.70) {
-                    cell.classList.add('strong');  // กลางๆ
+                    cell.classList.add('strong');  
                 } else {
-                    cell.classList.add('marginal'); // ปริ่มๆ
+                    cell.classList.add('marginal'); 
                 }
             } else {
-                break; // ครบตาม % ที่ระบุแล้ว หยุดรันลูป
+                break;
             }
         }
     }
 
-    // 1. วาดตาราง
     initGrid();
-    // 2. ให้จำลองการกดปุ่ม UTG2 (ตำแหน่งที่ 2) เป็นค่าเริ่มต้นตอนเปิดแอป
-    document.querySelector('.btn-pos:nth-child(2)').click();
+    document.querySelector('.btn-pos:nth-child(2)').click(); // เริ่มที่ UTG2
 
 </script>
 </body>
 </html>
-
