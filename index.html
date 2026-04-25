@@ -1,1 +1,229 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poker GTO Range Calculator</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            background-color: #0f141e; 
+            color: #ffffff; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0; padding: 20px 10px;
+            display: flex; flex-direction: column; align-items: center;
+        }
+        h2 { color: #f58220; margin-bottom: 15px; text-align: center; }
+        
+        /* ปุ่มเลือกตำแหน่ง */
+        .positions {
+            display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 20px;
+            max-width: 450px;
+        }
+        .btn-pos {
+            background-color: #1a2233; color: #a1abc0;
+            border: 1px solid #2c3854; border-radius: 8px;
+            padding: 10px 15px; font-size: 14px; font-weight: bold;
+            cursor: pointer; transition: 0.2s; flex-grow: 1; text-align: center;
+        }
+        .btn-pos:hover { background-color: #2c3854; }
+        .btn-pos.active {
+            background-color: #f58220; color: #ffffff; border-color: #f58220;
+        }
+
+        /* ส่วนคำนวณเปอร์เซ็นต์ */
+        .calc-section {
+            display: flex; gap: 10px; align-items: center; margin-bottom: 20px;
+            background-color: #1a2233; padding: 15px; border-radius: 10px;
+            width: 100%; max-width: 450px; justify-content: center;
+        }
+        input[type="number"] {
+            width: 80px; padding: 8px; font-size: 16px; font-weight: bold;
+            border-radius: 6px; border: none; text-align: center; background-color: #2c3854; color: white;
+        }
+        .btn-calc {
+            background-color: #f04e4e; color: white; border: none; border-radius: 6px;
+            padding: 10px 20px; font-size: 14px; font-weight: bold; cursor: pointer; transition: 0.2s;
+        }
+        .btn-calc:hover { background-color: #d14343; }
+
+        /* ตารางไพ่ */
+        .grid-container {
+            background-color: #1a2233; padding: 10px; border-radius: 12px;
+            width: 100%; max-width: 450px;
+        }
+        .grid {
+            display: grid; grid-template-columns: repeat(13, 1fr); gap: 2px;
+        }
+        .cell {
+            aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+            background-color: #111724; color: #434d63; font-size: 11px; font-weight: bold;
+            border-radius: 3px; user-select: none;
+        }
+
+        /* สีบอกระดับความชัวร์ */
+        .premium { background-color: #f04e4e; color: white; } /* แดง: ชัวร์มาก */
+        .strong { background-color: #f58220; color: white; } /* ส้ม: เล่นบ่อย */
+        .marginal { background-color: #f3c220; color: #222; } /* เหลือง: พอเล่นได้ */
+
+        /* คำอธิบายสี */
+        .legend {
+            display: flex; flex-wrap: wrap; gap: 15px; justify-content: center; 
+            margin-top: 15px; font-size: 12px; max-width: 450px;
+        }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .box { width: 12px; height: 12px; border-radius: 2px; }
+        .b-red { background-color: #f04e4e; }
+        .b-orange { background-color: #f58220; }
+        .b-yellow { background-color: #f3c220; }
+    </style>
+</head>
+<body>
+
+    <h2>GTO Range Calculator</h2>
+
+    <div class="positions" id="posButtons">
+        <button class="btn-pos" onclick="selectPos(this, 15.0)">UTG</button>
+        <button class="btn-pos" onclick="selectPos(this, 18.3)">UTG2</button>
+        <button class="btn-pos" onclick="selectPos(this, 26.6)">MP</button>
+        <button class="btn-pos" onclick="selectPos(this, 29.0)">HJ</button>
+        <button class="btn-pos" onclick="selectPos(this, 45.0)">BTN</button>
+        <button class="btn-pos" onclick="selectPos(this, 37.3)">SB</button>
+        <button class="btn-pos" onclick="selectPos(this, 10.7)">BB</button>
+    </div>
+
+    <div class="calc-section">
+        <span>ศัตรู Bet Range:</span>
+        <input type="number" id="percentInput" value="18.3" min="0" max="100" step="0.1">
+        <span>%</span>
+        <button class="btn-calc" onclick="calculateRange()">คำนวณ</button>
+    </div>
+
+    <div class="grid-container">
+        <div class="grid" id="pokerGrid"></div>
+    </div>
+
+    <div class="legend">
+        <div class="legend-item"><div class="box b-red"></div> ชัวร์สุด (Top 30%)</div>
+        <div class="legend-item"><div class="box b-orange"></div> กลางๆ (Middle 40%)</div>
+        <div class="legend-item"><div class="box b-yellow"></div> ปริ่มๆ (Bottom 30%)</div>
+    </div>
+
+<script>
+    // ลำดับไพ่ A ถึง 2
+    const ranks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
+    
+    // ลำดับความแข็งแกร่งของไพ่ 169 รูปแบบ (เพื่อใช้ดึง % แบบเรียงตามความเก่ง)
+    const handRankings = [
+        "AA","KK","QQ","JJ","AKs","AQs","TT","AKo","AJs","KQs","99","ATs","AQo","KJs","88","QJs","KTs",
+        "A9s","AJo","KQo","77","QTs","A8s","KJo","JTs","A7s","ATo","A5s","K9s","66","A6s","QJo","A4s",
+        "KTo","T9s","A3s","Q9s","J9s","55","A2s","K8s","QTo","K7s","J8s","T8s","K6s","JTo","98s","K5s",
+        "44","Q8s","K4s","K3s","T9o","K2s","Q7s","97s","33","Q6s","87s","Q5s","T7s","Q4s","Q3s","Q2s",
+        "22","J7s","96s","86s","J6s","76s","J5s","T6s","J4s","85s","J3s","75s","J2s","95s","65s","T5s",
+        "84s","74s","T4s","64s","T3s","54s","94s","T2s","73s","83s","63s","93s","53s","82s","72s","92s",
+        "62s","52s","43s","42s","32s","A9o","K9o","Q9o","J9o","A8o","K8o","Q8o","J8o","T8o","A7o","K7o",
+        "Q7o","J7o","T7o","97o","A6o","K6o","Q6o","J6o","T6o","96o","86o","A5o","K5o","Q5o","J5o","T5o",
+        "95o","85o","75o","A4o","K4o","Q4o","J4o","T4o","94o","84o","74o","64o","A3o","K3o","Q3o","J3o",
+        "T3o","93o","83o","73o","63o","53o","A2o","K2o","Q2o","J2o","T2o","92o","82o","72o","62o","52o",
+        "42o","32o"
+    ];
+
+    const grid = document.getElementById('pokerGrid');
+
+    // สร้างตาราง 13x13 (169 ช่อง) ตอนเปิดแอพ
+    function initGrid() {
+        grid.innerHTML = '';
+        for (let i = 0; i < 13; i++) {
+            for (let j = 0; j < 13; j++) {
+                let hand = '';
+                if (i === j) {
+                    hand = ranks[i] + ranks[j]; // ไพ่คู่
+                } else if (i < j) {
+                    hand = ranks[i] + ranks[j] + 's'; // Suited (ดอกเดียวกัน)
+                } else {
+                    hand = ranks[j] + ranks[i] + 'o'; // Offsuit (คนละดอก)
+                }
+                
+                let div = document.createElement('div');
+                div.className = 'cell';
+                div.id = 'cell-' + hand;
+                div.innerText = hand;
+                grid.appendChild(div);
+            }
+        }
+    }
+
+    // กดเลือกตำแหน่ง
+    function selectPos(btnElement, percent) {
+        // ลบ class active ออกจากทุกปุ่มก่อน
+        let buttons = document.querySelectorAll('.btn-pos');
+        buttons.forEach(btn => btn.classList.remove('active'));
+        
+        // ใส่ class active ให้ปุ่มที่เพิ่งกด
+        btnElement.classList.add('active');
+
+        // อัปเดตช่อง Input
+        document.getElementById('percentInput').value = percent;
+        
+        // สั่งคำนวณทันที
+        calculateRange();
+    }
+
+    // คำนวณและระบายสีตารางตาม %
+    function calculateRange() {
+        let targetPercent = parseFloat(document.getElementById('percentInput').value);
+        if (isNaN(targetPercent) || targetPercent < 0) targetPercent = 0;
+        if (targetPercent > 100) targetPercent = 100;
+
+        // ล้างสีเก่าออกทั้งหมด
+        let cells = document.querySelectorAll('.cell');
+        cells.forEach(cell => {
+            cell.classList.remove('premium', 'strong', 'marginal');
+        });
+
+        let cumulativeCombos = 0;
+        const totalCombos = 1326; // จำนวนคอมโบทั้งหมดใน Texas Hold'em
+        
+        // คำนวณจำนวนคอมโบเป้าหมาย
+        let totalCombosNeeded = (targetPercent / 100) * totalCombos;
+        
+        for (let i = 0; i < handRankings.length; i++) {
+            let hand = handRankings[i];
+            let combos = 0;
+            
+            // หาว่าไพ่นี้มีกี่คอมโบ
+            if (hand.length === 2) combos = 6;       // ไพ่คู่มี 6 คอมโบ
+            else if (hand.includes('s')) combos = 4; // Suited มี 4 คอมโบ
+            else combos = 12;                        // Offsuit มี 12 คอมโบ
+
+            cumulativeCombos += combos;
+
+            // ถ้ายอดรวมคอมโบยังอยู่ในช่วงที่กำหนด ให้ระบายสี
+            if (cumulativeCombos <= totalCombosNeeded) {
+                let cell = document.getElementById('cell-' + hand);
+                
+                // แบ่งสัดส่วนสี (Top 30%, Middle 40%, Bottom 30%)
+                let currentPosPercent = cumulativeCombos / totalCombosNeeded;
+                
+                if (currentPosPercent <= 0.30) {
+                    cell.classList.add('premium'); // ชัวร์สุด
+                } else if (currentPosPercent <= 0.70) {
+                    cell.classList.add('strong');  // กลางๆ
+                } else {
+                    cell.classList.add('marginal'); // ปริ่มๆ
+                }
+            } else {
+                break; // ครบตาม % ที่ระบุแล้ว หยุดรันลูป
+            }
+        }
+    }
+
+    // 1. วาดตาราง
+    initGrid();
+    // 2. ให้จำลองการกดปุ่ม UTG2 (ตำแหน่งที่ 2) เป็นค่าเริ่มต้นตอนเปิดแอป
+    document.querySelector('.btn-pos:nth-child(2)').click();
+
+</script>
+</body>
+</html>
 
